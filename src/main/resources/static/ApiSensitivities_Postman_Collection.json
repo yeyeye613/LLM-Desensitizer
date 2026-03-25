@@ -1,0 +1,196 @@
+{
+	"info": {
+		"_postman_id": "b6a7b8c9-d0e1-f2a3-b4c5-d6e7f8a9b0c1",
+		"name": "ApiSensitivities Test Collection",
+		"description": "Collection of test cases for ApiSensitivities project, focusing on context-aware desensitization.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Scenario: Financial (Auto Detection)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"content\": \"我想查询一下我的银行卡余额，卡号是 6222021234567890123，最近买了一些股票和基金。\",\r\n  \"dataType\": \"TEXT\",\r\n  \"autoScenarioDetection\": true\r\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8080/desensitize/text",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"desensitize",
+						"text"
+					]
+				},
+				"description": "Tests automatic detection of FINANCIAL_ADVICE scenario. Expects bank card to be detected with lower threshold."
+			},
+			"response": []
+		},
+		{
+			"name": "Scenario: Medical (Auto Detection)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"content\": \"医生你好，我是张三，身份证号 110101199003071234，最近感觉头痛，需要去医院检查一下。\",\r\n  \"dataType\": \"TEXT\",\r\n  \"autoScenarioDetection\": true\r\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8080/desensitize/text",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"desensitize",
+						"text"
+					]
+				},
+				"description": "Tests automatic detection of MEDICAL_CONSULTATION scenario. Expects ID card and Name to be detected."
+			},
+			"response": []
+		},
+		{
+			"name": "Scenario: Code Development (Auto Detection)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"content\": \"public void login() { String apiKey = \\\"sk-1234567890abcdef1234567890abcdef\\\"; }\",\r\n  \"dataType\": \"TEXT\",\r\n  \"autoScenarioDetection\": true\r\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8080/desensitize/text",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"desensitize",
+						"text"
+					]
+				},
+				"description": "Tests automatic detection of CODE_DEVELOPMENT scenario. Expects API Key to be detected."
+			},
+			"response": []
+		},
+		{
+			"name": "Scenario: General Chat (Auto Detection)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"content\": \"你好，今天天气真不错，去哪里旅游比较好？这是一串数字 1234567890123456，不是银行卡。\",\r\n  \"dataType\": \"TEXT\",\r\n  \"autoScenarioDetection\": true\r\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8080/desensitize/text",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"desensitize",
+						"text"
+					]
+				},
+				"description": "Tests automatic detection of GENERAL_CHAT scenario. Expects higher threshold, so the random number string should NOT be detected as a bank card."
+			},
+			"response": []
+		},
+		{
+			"name": "Scenario: Manual Override (Force Financial)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"content\": \"这就只是一个普通的数字 6222021234567890123\",\r\n  \"dataType\": \"TEXT\",\r\n  \"autoScenarioDetection\": true,\r\n  \"manualScenarioType\": \"FINANCIAL_ADVICE\"\r\n}"
+				},
+				"url": {
+					"raw": "http://localhost:8080/desensitize/text",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"desensitize",
+						"text"
+					]
+				},
+				"description": "Tests manual override to force FINANCIAL_ADVICE scenario. Even with generic text, the number should be treated as a bank card due to strict financial context."
+			},
+			"response": []
+		},
+		{
+			"name": "Batch Desensitization",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "[\r\n    {\r\n        \"content\": \"我的手机号是13800138000\",\r\n        \"dataType\": \"TEXT\",\r\n        \"autoScenarioDetection\": true\r\n    },\r\n    {\r\n        \"content\": \"这里有一个API Key: sk-abcdefg1234567\",\r\n        \"dataType\": \"TEXT\",\r\n        \"autoScenarioDetection\": true\r\n    }\r\n]"
+				},
+				"url": {
+					"raw": "http://localhost:8080/desensitize/batch",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"desensitize",
+						"batch"
+					]
+				},
+				"description": "Tests batch desensitization endpoint."
+			},
+			"response": []
+		}
+	]
+}

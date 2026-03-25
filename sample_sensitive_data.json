@@ -1,0 +1,21 @@
+{
+  "user_info": {
+    "name": "张三",
+    "phone": "13812345678",
+    "email": "zhangsan@example.com",
+    "id_card": "110101199003073319",
+    "address": "北京市海淀区中关村大街1号"
+  },
+  "payment_info": {
+    "bank_card": "6212345678901238",
+    "credit_card": "4532711234567895"
+  },
+  "vehicle_info": {
+    "license_plate": "京A88888"
+  },
+  "system_logs": [
+    "User login from IP: 192.168.1.100",
+    "API Key: sk-proj-1234567890abcdef1234567890abcdef",
+    "Database password: password123!"
+  ]
+}

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hdu.apisensitivities.mapper.SensitiveRuleMapper">
+
+    <resultMap id="BaseResultMap" type="com.hdu.apisensitivities.dto.SensitiveRule">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="pattern_name" property="patternName" jdbcType="VARCHAR"/>
+        <result column="regex" property="regex" jdbcType="VARCHAR"/>
+        <result column="is_enabled" property="isEnabled" jdbcType="BOOLEAN"/>
+        <result column="description" property="description" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, pattern_name, regex, is_enabled, description, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.hdu.apisensitivities.dto.SensitiveRule" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sensitive_rules (pattern_name, regex, is_enabled, description)
+        VALUES (#{patternName}, #{regex}, #{isEnabled}, #{description})
+    </insert>
+
+    <update id="update" parameterType="com.hdu.apisensitivities.dto.SensitiveRule">
+        UPDATE sensitive_rules
+        <set>
+            <if test="regex != null">regex = #{regex},</if>
+            <if test="isEnabled != null">is_enabled = #{isEnabled},</if>
+            <if test="description != null">description = #{description},</if>
+        </set>
+        WHERE pattern_name = #{patternName}
+    </update>
+
+    <delete id="deleteByPatternName">
+        DELETE FROM sensitive_rules WHERE pattern_name = #{patternName}
+    </delete>
+
+    <select id="selectByPatternName" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sensitive_rules
+        WHERE pattern_name = #{patternName}
+    </select>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sensitive_rules
+    </select>
+
+    <select id="selectEnabled" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM sensitive_rules
+        WHERE is_enabled = true
+    </select>
+
+    <update id="updateStatus">
+        UPDATE sensitive_rules
+        SET is_enabled = #{isEnabled}
+        WHERE pattern_name = #{patternName}
+    </update>
+
+</mapper>
