@@ -8,5 +8,6 @@ public enum LlmProvider {
     CLAUDE,
     QWEN,//通义千问
     KIMI,//月之暗面Kimi
-    HUNYUAN//腾讯混元
+    HUNYUAN,//腾讯混元
+    OLLAMA
 }

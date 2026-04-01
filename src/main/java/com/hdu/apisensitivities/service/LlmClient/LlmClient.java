@@ -3,6 +3,7 @@ package com.hdu.apisensitivities.service.LlmClient;
 import com.hdu.apisensitivities.config.LlmConfig;
 import com.hdu.apisensitivities.entity.LlmProvider;
 
+import org.springframework.http.HttpHeaders;
 import java.util.Map;
 
 public interface LlmClient {
@@ -24,4 +25,6 @@ public interface LlmClient {
     
     //检查客户端是否支持指定的数据类型
     boolean supportsDataType(String dataType);
+
+    HttpHeaders createHeaders(LlmConfig config);
 }

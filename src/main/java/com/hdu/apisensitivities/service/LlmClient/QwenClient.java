@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpHeaders;
 
 import java.util.Base64;
 import java.util.HashMap;
@@ -106,7 +107,7 @@ public class QwenClient implements LlmClient {
         return supportedTypes.contains(dataType.toUpperCase());
     }
 
-    private HttpHeaders createHeaders(LlmConfig config) {
+    public HttpHeaders createHeaders(LlmConfig config) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", "Bearer " + config.getApiKey());

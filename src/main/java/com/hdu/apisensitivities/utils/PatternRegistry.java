@@ -21,35 +21,37 @@ public class PatternRegistry {
         private static final Map<SensitiveType, Pattern> PATTERN_MAP = new HashMap<>();
 
         static {
-                // 中国手机号
-                // 使用 lookbehind (?<!\d) 和 lookahead (?!\d) 确保手机号不是更长数字串的一部分
+                // 1. 手机号：增加前后的数字断言，防止从身份证号中截取
+                // 兼容空格/横杠：138-1234-5678 或 138 1234 5678
                 PATTERN_MAP.put(SensitiveType.PHONE_NUMBER,
-                                Pattern.compile("(?<!\\d)(?:\\+86)?1[3-9]\\d{9}(?!\\d)"));
+                        Pattern.compile("(?<!\\d)(?:\\+86)?1[3-9]\\d{1}([\\s-]?\\d{4}){2}(?!\\d)"));
 
-                // 邮箱
+                // 2. 邮箱：优化结尾匹配，防止截断，并确保后缀完整性
                 PATTERN_MAP.put(SensitiveType.EMAIL,
-                                Pattern.compile("\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"));
+                        Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}(?:\\.[A-Za-z]{2,})?"));
 
-                // 身份证号（中国）
-                PATTERN_MAP.put(SensitiveType.ID_CARD,
-                                Pattern.compile("\\b[1-9]\\d{5}(?:18|19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[0-9Xx]\\b"));
-
-                // 银行卡号
+                // 3. 银行卡号：强制要求 13-19 位，且前后不能有数字
+                // 银行卡误报率高，必须排除掉可能的身份证号（身份证是18位且含校验码）
                 PATTERN_MAP.put(SensitiveType.BANK_CARD,
-                                Pattern.compile("\\b[1-9]\\d{12,18}\\b"));
+                        Pattern.compile("(?<!\\d)[1-9]\\d{12,18}(?!\\d)"));
 
-                // API密钥（通用模式 - 配合熵值检测）
-                // 匹配常见的Key格式，如 sk-xxx, AKIAxxx, 或者是32位以上的十六进制/Base64字符串
-                PATTERN_MAP.put(SensitiveType.API_KEY,
-                                Pattern.compile("(?i)\\b(?:sk-[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16}|[a-f0-9]{32,}|[a-zA-Z0-9+/=]{30,})\\b"));
+                // 4. 身份证号：严格 18 位格式锁定
+                PATTERN_MAP.put(SensitiveType.ID_CARD,
+                        Pattern.compile("(?<!\\d)[1-9]\\d{5}(?:18|19|20)\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])\\d{3}[0-9Xx](?!\\d)"));
 
+                // 5. 密码
+                // 逻辑：必须包含字母，长度 8-20，且前后不能紧跟字母数字符号
+                // 这样 6222028260688877 这种纯数字就不会被识别为 PASSWORD
+                PATTERN_MAP.put(SensitiveType.PASSWORD, 
+                        Pattern.compile("(?<![A-Za-z0-9])(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d@$!%*#?&]{8,20}(?![A-Za-z0-9])"));
+
+                // 6. 护照
+                PATTERN_MAP.put(SensitiveType.PASSPORT,
+                        Pattern.compile("(?<![A-Z0-9])[EeGg][0-9]{8}(?![0-9])"));
                 // 信用卡号
                 PATTERN_MAP.put(SensitiveType.CREDIT_CARD,
                                 Pattern.compile("\\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12}|(?:2131|1800|35\\d{3})\\d{11})\\b"));
 
-                // 护照号
-                PATTERN_MAP.put(SensitiveType.PASSPORT,
-                                Pattern.compile("\\b[A-Z][0-9]{8}\\b|\\b[GgEe][0-9]{8}\\b"));
 
                 // 社会安全码/社保号 (以US SSN为例，也可扩展中国社保)
                 PATTERN_MAP.put(SensitiveType.SOCIAL_SECURITY,

@@ -16,6 +16,15 @@ public class LlmConfigService {
 
     private final Map<LlmProvider, LlmConfig> configMap = new HashMap<>();
 
+    @Value("${llm.providers.ollama.url:http://localhost:11434/v1/chat/completions}")
+    private String ollamaUrl;
+
+    @Value("${llm.providers.ollama.key:ollama}")
+    private String ollamaKey;
+
+    @Value("${llm.providers.ollama.model:deepseek-r1:7b}")
+    private String ollamaModel;
+
     @Value("${llm.providers.openai.url:https://api.openai.com/v1/chat/completions}")
     private String openaiUrl;
 
@@ -78,6 +87,18 @@ public class LlmConfigService {
 
     @PostConstruct
     public void init() {
+        // 新增：初始化 Ollama 配置
+        configMap.put(LlmProvider.OLLAMA, LlmConfig.builder()
+                .provider(LlmProvider.OLLAMA)
+                .apiUrl(ollamaUrl)
+                .apiKey(ollamaKey)
+                .model(ollamaModel)
+                .temperature(defaultTemperature)
+                .maxTokens(defaultMaxTokens)
+                .build());
+
+        log.info("LLM配置初始化完成，已包含本地 Ollama 提供商");
+
         // 初始化OpenAI配置
         configMap.put(LlmProvider.OPENAI, LlmConfig.builder()
                 .provider(LlmProvider.OPENAI)
@@ -141,8 +162,9 @@ public class LlmConfigService {
         log.info("LLM配置初始化完成，已配置 {} 个提供商", configMap.size());
     }
 
+    // 修改此方法：如果请求没指定提供商，可以默认走本地
     public LlmConfig getConfigOrDefault(LlmProvider provider) {
-        return configMap.getOrDefault(provider, configMap.get(LlmProvider.OPENAI));
+        return configMap.getOrDefault(provider, configMap.get(LlmProvider.OLLAMA));
     }
 
     public Map<LlmProvider, LlmConfig> getAllConfigs() {
