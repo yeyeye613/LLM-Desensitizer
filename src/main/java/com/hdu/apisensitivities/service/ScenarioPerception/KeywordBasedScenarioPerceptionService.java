@@ -181,7 +181,7 @@ public class KeywordBasedScenarioPerceptionService implements ScenarioPerception
             // 设置动态阈值和严格模式
             configureDynamicRules(result);
 
-            log.info("识别到情景: {}, 得分: {}, 置信度: {:.2f}", scenarioType, score, confidence);
+            log.info("识别到情景: {}, 得分: {}, 置信度: {}", scenarioType, score, String.format("%.2f", confidence));
             return result;
         }
 

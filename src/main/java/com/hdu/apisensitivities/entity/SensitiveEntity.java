@@ -19,7 +19,16 @@ public class SensitiveEntity {
     private int end;
     private double confidence;
     private Map<String, Object> metadata; // 添加元数据字段，用于存储结构化数据的额外信息
+    private String content;
     
+    // 补上这个构造函数
+    public SensitiveEntity(SensitiveType type, String content, int start, int end) {
+        this.type = type;
+        this.content = content;
+        this.start = start;
+        this.end = end;
+    }
+
     // 初始化metadata的方法
     public Map<String, Object> getMetadata() {
         if (metadata == null) {

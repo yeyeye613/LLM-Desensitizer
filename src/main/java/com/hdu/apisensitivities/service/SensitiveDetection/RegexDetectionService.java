@@ -1,5 +1,6 @@
 package com.hdu.apisensitivities.service.SensitiveDetection;
 
+import com.hdu.apisensitivities.utils.NlpEntityDetector;
 import com.hdu.apisensitivities.service.DataParser.DataParserManager;
 import com.hdu.apisensitivities.entity.SensitiveEntity;
 import com.hdu.apisensitivities.entity.SensitiveType;
@@ -58,6 +59,20 @@ public class RegexDetectionService implements SensitiveDetectionService {
             // 如果指定了检测类型，只检测指定的类型
             if (includeTypes == null || includeTypes.contains(entry.getKey().name())) {
                 entities.addAll(detectWithPattern(text, entry.getKey(), entry.getValue(), context));
+            }
+        }
+
+        // ========== 方式B：NLP实体检测 ==========
+        // 使用HanLP进行NLP实体检测
+        List<SensitiveEntity> nlpEntities = NlpEntityDetector.detect(text);
+        // 过滤NLP检测结果，根据includeTypes
+        if (includeTypes == null) {
+            entities.addAll(nlpEntities);
+        } else {
+            for (SensitiveEntity entity : nlpEntities) {
+                if (includeTypes.contains(entity.getType().name())) {
+                    entities.add(entity);
+                }
             }
         }
 
@@ -414,15 +429,19 @@ public class RegexDetectionService implements SensitiveDetectionService {
         return entropy;
     }
 
-    // 简单的Luhn算法校验银行卡
+    // 简单的Luhn算法校验银行卡，支持空格和横线分隔
     private boolean validateBankCard(String bankCard) {
-        if (bankCard == null || bankCard.length() < 13 || bankCard.length() > 19) {
+        if (bankCard == null) {
+            return false;
+        }
+        String normalized = bankCard.replaceAll("[\\s-]", "");
+        if (normalized.length() < 13 || normalized.length() > 19 || !normalized.matches("\\d+")) {
             return false;
         }
         int sum = 0;
         boolean alternate = false;
-        for (int i = bankCard.length() - 1; i >= 0; i--) {
-            int n = Integer.parseInt(bankCard.substring(i, i + 1));
+        for (int i = normalized.length() - 1; i >= 0; i--) {
+            int n = Integer.parseInt(normalized.substring(i, i + 1));
             if (alternate) {
                 n *= 2;
                 if (n > 9) {
@@ -436,8 +455,11 @@ public class RegexDetectionService implements SensitiveDetectionService {
     }
 
     private boolean validatePhoneNumber(String phone) {
-        // 简单的手机号验证逻辑
-        return phone != null && phone.matches("1[3-9]\\d{9}");
+        if (phone == null) {
+            return false;
+        }
+        String normalized = phone.replaceAll("[\\s-]", "");
+        return normalized.matches("1[3-9]\\d{9}");
     }
 
     private boolean validateIdCard(String idCard) {
@@ -517,8 +539,8 @@ public class RegexDetectionService implements SensitiveDetectionService {
             return entities;
         }
 
-        // 按起始位置排序
-        entities.sort(Comparator.comparingInt(SensitiveEntity::getStart));
+        entities.sort(Comparator.comparingInt(SensitiveEntity::getStart)
+                .thenComparingInt(SensitiveEntity::getEnd));
 
         List<SensitiveEntity> merged = new ArrayList<>();
         SensitiveEntity current = entities.get(0);
@@ -526,53 +548,37 @@ public class RegexDetectionService implements SensitiveDetectionService {
         for (int i = 1; i < entities.size(); i++) {
             SensitiveEntity next = entities.get(i);
 
-            // 检查是否来自不同的字段路径（结构化数据）
-            boolean hasDifferentFieldPaths = false;
-            String currentPath = null;
-            String nextPath = null;
+            String currentPath = current.getMetadata() == null ? null : (String) current.getMetadata().get("fieldPath");
+            String nextPath = next.getMetadata() == null ? null : (String) next.getMetadata().get("fieldPath");
+            boolean hasDifferentFieldPaths = currentPath != null && nextPath != null && !currentPath.equals(nextPath);
 
-            if (current.getMetadata() != null) {
-                currentPath = (String) current.getMetadata().get("fieldPath");
-            }
-            if (next.getMetadata() != null) {
-                nextPath = (String) next.getMetadata().get("fieldPath");
-            }
-
-            // 如果两个实体都有字段路径且不同，则不合并
-            hasDifferentFieldPaths = currentPath != null && nextPath != null && !currentPath.equals(nextPath);
-
-            // 只有当没有重叠或者来自不同字段路径时，才添加当前实体并更新current
-            if (current.getEnd() < next.getStart() || hasDifferentFieldPaths) {
+            if (hasDifferentFieldPaths || current.getEnd() <= next.getStart()) {
                 merged.add(current);
                 current = next;
-            } else {
-                // 重叠且来自相同字段路径，进行合并
-                if (next.getEnd() > current.getEnd()) {
-                    current.setEnd(next.getEnd());
-                    try {
-                        current.setOriginalText(
-                                current.getOriginalText() +
-                                        next.getOriginalText().substring(current.getEnd() - next.getStart()));
-                    } catch (IndexOutOfBoundsException e) {
-                        // 避免字符串索引越界，直接使用较长的文本
-                        current.setOriginalText(next.getOriginalText());
-                    }
-                }
-                // 选择置信度较高的类型
-                if (next.getConfidence() > current.getConfidence()) {
-                    current.setType(next.getType());
-                    current.setConfidence(next.getConfidence());
-                }
-                // 合并元数据信息
+                continue;
+            }
+
+            // 重叠且来自相同字段路径
+            if (current.getType() == next.getType()) {
+                int start = Math.min(current.getStart(), next.getStart());
+                int end = Math.max(current.getEnd(), next.getEnd());
+                current.setStart(start);
+                current.setEnd(end);
+
+                String currentText = current.getOriginalText() != null ? current.getOriginalText() : "";
+                String nextText = next.getOriginalText() != null ? next.getOriginalText() : "";
+                current.setOriginalText(currentText.length() >= nextText.length() ? currentText : nextText);
+                current.setConfidence(Math.max(current.getConfidence(), next.getConfidence()));
+
                 if (next.getMetadata() != null && !next.getMetadata().isEmpty()) {
-                    Map<String, Object> currentMetadata = current.getMetadata();
-                    Map<String, Object> nextMetadata = next.getMetadata();
-                    currentMetadata.putAll(nextMetadata);
+                    current.getMetadata().putAll(next.getMetadata());
                 }
+            } else {
+                merged.add(current);
+                current = next;
             }
         }
 
-        // 添加最后一个实体
         merged.add(current);
         return merged;
     }

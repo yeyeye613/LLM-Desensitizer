@@ -102,8 +102,8 @@ public class DesensitizationManager {
                     }
                 }
 
-                log.info("情景分析完成，情景类型: {}, 置信度: {:.2f}",
-                        scenarioResult.getScenarioType(), scenarioResult.getConfidence());
+                log.info("情景分析完成，情景类型: {}, 置信度: {}",
+                        scenarioResult.getScenarioType(), String.format("%.2f", scenarioResult.getConfidence()));
 
                 // 根据分析服务类型调整检测范围（因为不同服务的adjustDetectionScope逻辑可能不同）
                 if (useLlm) {
