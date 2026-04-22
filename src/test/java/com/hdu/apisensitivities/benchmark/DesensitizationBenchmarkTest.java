@@ -33,8 +33,10 @@ public class DesensitizationBenchmarkTest {
             "person", "CHINESE_NAME",
             "phone", "MOBILE_PHONE",
             "address", "ADDRESS",
-            "email", "EMAIL"
-    );
+            "email", "EMAIL",
+            "bank_card", "BANK_CARD",
+            "license_plate", "LICENSE_PLATE",
+            "id_number", "ID_CARD");
 
     @Test
     public void runBenchmark() throws Exception {
@@ -42,6 +44,7 @@ public class DesensitizationBenchmarkTest {
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
         String logFileName = String.format("benchmark_result_%s.log", timestamp);
         Path logPath = Paths.get("./logs", logFileName);
+
 
         // 确保 logs 目录存在
         Files.createDirectories(logPath.getParent());
@@ -51,13 +54,17 @@ public class DesensitizationBenchmarkTest {
 
         // 3. 读取测试数据
         InputStream is = getClass().getClassLoader().getResourceAsStream("my_pii_test_set.json");
-        List<TestDataDTO> testCases = objectMapper.readValue(is, new TypeReference<>() {});
+        List<TestDataDTO> testCases = objectMapper.readValue(is, new TypeReference<>() {
+        });
 
         // 4. 统计变量
         int totalExpected = 0;
         int totalFound = 0;
         int failedCases = 0;
         List<TestCaseResult> caseResults = new ArrayList<>();
+
+        StringBuilder failLog = new StringBuilder();
+        failLog.append("失败用例汇总\n").append("==========\n");
 
         for (TestDataDTO testCase : testCases) {
             TestCaseResult result = new TestCaseResult();
@@ -69,7 +76,12 @@ public class DesensitizationBenchmarkTest {
                     .content(testCase.getContent())
                     .dataType("TEXT")
                     .language(testCase.getLanguage())
-                    .autoScenarioDetection(true)
+                    // TODO: 这里情景感知关掉了
+                    .autoScenarioDetection(false)
+                    .strictMode(false) // 关闭严格模式
+                    .confidenceThreshold(0.0) // 设置低置信度阈值，避免过滤
+                    .blacklist(null) // 不设置黑名单
+                    .whitelist(null) // 不设置白名单
                     .build();
 
             DesensitizationResponse response = desensitizationManager.process(request);
@@ -102,13 +114,20 @@ public class DesensitizationBenchmarkTest {
             result.setMatchedCount(matchedCount);
             result.setUnmatchedEntities(unmatchedEntities);
 
-            double recall = testCase.getExpected_entities().size() == 0 ? 0 :
-                    (double) matchedCount / testCase.getExpected_entities().size() * 100;
+            double recall = testCase.getExpected_entities().size() == 0 ? 0
+                    : (double) matchedCount / testCase.getExpected_entities().size() * 100;
             result.setRecall(recall);
             result.setSuccess(matchedCount == testCase.getExpected_entities().size());
 
             if (!result.isSuccess()) {
                 failedCases++;
+                failLog.append("用例ID: ").append(result.getCaseId()).append("\n");
+                failLog.append("  预期实体数: ").append(result.getExpectedCount()).append("\n");
+                failLog.append("  匹配实体数: ").append(result.getMatchedCount()).append("\n");
+                failLog.append("  未识别实体: ").append(String.join(", ", result.getUnmatchedEntities())).append("\n");
+                // 如果你还想看原始文本，可以从 testCase 里取：
+                failLog.append(" 原始文本: ").append(testCase.getContent()).append("\n");
+                failLog.append("\n");
             }
 
             caseResults.add(result);
@@ -160,6 +179,13 @@ public class DesensitizationBenchmarkTest {
         // 8. 写入文件
         Files.write(logPath, report.toString().getBytes(StandardCharsets.UTF_8),
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                
+        // 在所有用例处理完之后，写入文件：
+        if (failLog.length() > 0) {
+            Path failLogPath = Paths.get("./logs", "failed_cases_" + timestamp + ".log");
+            Files.write(failLogPath, failLog.toString().getBytes(StandardCharsets.UTF_8));
+            System.out.println("失败日志已保存到: " + failLogPath.toAbsolutePath());
+        }
 
         // 9. 同时保存一份 JSON 格式的详细结果（便于后续分析）
         String jsonResult = objectMapper.writerWithDefaultPrettyPrinter()
@@ -192,22 +218,52 @@ public class DesensitizationBenchmarkTest {
         private boolean success;
 
         // Getters and Setters
-        public String getCaseId() { return caseId; }
-        public void setCaseId(String caseId) { this.caseId = caseId; }
+        public String getCaseId() {
+            return caseId;
+        }
 
-        public int getExpectedCount() { return expectedCount; }
-        public void setExpectedCount(int expectedCount) { this.expectedCount = expectedCount; }
+        public void setCaseId(String caseId) {
+            this.caseId = caseId;
+        }
 
-        public int getMatchedCount() { return matchedCount; }
-        public void setMatchedCount(int matchedCount) { this.matchedCount = matchedCount; }
+        public int getExpectedCount() {
+            return expectedCount;
+        }
 
-        public List<String> getUnmatchedEntities() { return unmatchedEntities; }
-        public void setUnmatchedEntities(List<String> unmatchedEntities) { this.unmatchedEntities = unmatchedEntities; }
+        public void setExpectedCount(int expectedCount) {
+            this.expectedCount = expectedCount;
+        }
 
-        public double getRecall() { return recall; }
-        public void setRecall(double recall) { this.recall = recall; }
+        public int getMatchedCount() {
+            return matchedCount;
+        }
 
-        public boolean isSuccess() { return success; }
-        public void setSuccess(boolean success) { this.success = success; }
+        public void setMatchedCount(int matchedCount) {
+            this.matchedCount = matchedCount;
+        }
+
+        public List<String> getUnmatchedEntities() {
+            return unmatchedEntities;
+        }
+
+        public void setUnmatchedEntities(List<String> unmatchedEntities) {
+            this.unmatchedEntities = unmatchedEntities;
+        }
+
+        public double getRecall() {
+            return recall;
+        }
+
+        public void setRecall(double recall) {
+            this.recall = recall;
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public void setSuccess(boolean success) {
+            this.success = success;
+        }
     }
 }

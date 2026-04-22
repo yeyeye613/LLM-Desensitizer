@@ -15,6 +15,19 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+/**
+ * LLM 代理服务，负责处理大语言模型请求的全流程。
+ * <p>
+ * 主要功能包括：
+ * <ul>
+ *     <li>接收 {@link LlmRequest} 或 {@link ApiRequest} 请求</li>
+ *     <li>根据数据类型（文本/JSON/二进制等）进行敏感信息脱敏</li>
+ *     <li>调用对应的 {@link LlmClient} 实现与真实 LLM API 交互</li>
+ *     <li>对返回内容再次脱敏并封装为 {@link LlmResponse} 或 {@link ApiResponse}</li>
+ *     <li>支持同步、异步、批量处理及提供商健康测试</li>
+ * </ul>
+ * </p>
+ */
 @Slf4j
 @Service
 public class LlmProxyService {
@@ -23,6 +36,13 @@ public class LlmProxyService {
     private final LlmConfigService configService;
     private final Map<LlmProvider, LlmClient> llmClients;
 
+    /**
+     * 构造 LLM 代理服务实例。
+     *
+     * @param desensitizationManager 敏感信息脱敏管理器，用于输入/输出的内容脱敏
+     * @param configService          LLM 提供商配置服务，获取各提供商的 API 密钥、端点等配置
+     * @param clients                所有已注册的 LLM 客户端实现，将按支持的提供商自动映射
+     */
     @Autowired
     public LlmProxyService(DesensitizationManager desensitizationManager,
                            LlmConfigService configService,
@@ -33,7 +53,18 @@ public class LlmProxyService {
                 .collect(Collectors.toMap(LlmClient::getSupportedProvider, client -> client));
     }
 
-    //处理LLM请求（新版）
+    /**
+     * 同步处理单个 LLM 请求（新版请求模型）。
+     * <p>
+     * 处理流程：输入脱敏 → 调用 LLM API → 输出脱敏 → 封装响应。
+     * 支持的数据类型包括 TEXT、JSON、XML、IMAGE、AUDIO、PDF、DOC 等。
+     * </p>
+     *
+     * @param request LLM 请求对象，必须包含 prompt 或结构化数据/二进制数据
+     * @return 处理结果，包含原始响应、脱敏响应、检测到的敏感实体、耗时等信息
+     * @throws RuntimeException 当提供商未启用、配置无效或 API 调用失败时抛出
+     */
+    // TODO: 日志和计时都可以拆分成注解的
     public LlmResponse processLlmRequest(LlmRequest request) {
         Instant start = Instant.now();
 
@@ -41,7 +72,7 @@ public class LlmProxyService {
             LlmProvider provider = request.getProvider();
             LlmConfig config = configService.getConfigOrDefault(provider);
 
-            log.info("开始处理LLM请求，提供商: {}, 会话ID: {}, 数据类型: {}", 
+            log.info("开始处理LLM请求，提供商: {}, 会话ID: {}, 数据类型: {}",
                     provider, request.getSessionId(), request.getDataType());
 
             // 验证提供商是否启用
@@ -53,7 +84,7 @@ public class LlmProxyService {
             DesensitizationResult result = processWithDataSensitiveProtection(request, config);
 
             long processingTime = Duration.between(start, Instant.now()).toMillis();
-            
+
             // 构建响应
             LlmResponse.LlmResponseBuilder responseBuilder = LlmResponse.builder()
                     .originalResponse(result.getOriginalResponse())
@@ -64,10 +95,10 @@ public class LlmProxyService {
                     .model(config.getModel())
                     .processingTimeMs(processingTime)
                     .success(true);
-            
+
             // 设置响应数据类型
             responseBuilder.dataType(request.getDataType());
-            
+
             // 对于JSON和XML类型的响应，尝试解析为结构化数据
             if ("JSON".equals(request.getDataType()) || "XML".equals(request.getDataType())) {
                 try {
@@ -101,6 +132,7 @@ public class LlmProxyService {
         }
     }
 
+    
     //处理LLM请求（兼容旧版ApiRequest）
     public ApiResponse processLlmRequest(ApiRequest request) {
         LlmRequest llmRequest = request.toLlmRequest();
@@ -108,6 +140,12 @@ public class LlmProxyService {
         return llmResponse.toApiResponse();
     }
 
+    /**
+     * 异步处理 LLM 请求（新版）。
+     *
+     * @param request LLM 请求对象
+     * @return 包含 {@link LlmResponse} 的 CompletableFuture
+     */
     @Async
     public CompletableFuture<LlmResponse> processLlmRequestAsync(LlmRequest request) {
         return CompletableFuture.completedFuture(processLlmRequest(request));
@@ -135,7 +173,14 @@ public class LlmProxyService {
                 ));
     }
 
-    //测试所有提供商配置
+    /**
+     * 测试所有已注册 LLM 提供商的配置是否有效。
+     * <p>
+     * 依次调用每个客户端的 {@link LlmClient#validateConfig(LlmConfig)} 方法。
+     * </p>
+     *
+     * @return 每个提供商对应的测试结果（true=配置有效，false=无效或异常）
+     */
     public Map<LlmProvider, Boolean> testAllProviders() {
         return llmClients.entrySet().stream()
                 .collect(Collectors.toMap(
@@ -153,7 +198,13 @@ public class LlmProxyService {
                 ));
     }
 
-    // 根据不同数据类型执行敏感信息保护
+    /**
+     * 根据请求的数据类型执行输入脱敏、API 调用和输出脱敏的核心逻辑。
+     *
+     * @param request 原始 LLM 请求
+     * @param config  对应提供商的配置
+     * @return 封装了原始响应、脱敏响应及输入/输出敏感实体的结果对象
+     */
     private DesensitizationResult processWithDataSensitiveProtection(LlmRequest request, LlmConfig config) {
         // 1. 输入预处理与脱敏
         DesensitizationRequest inputRequest = buildDesensitizationRequestForLlm(request);
@@ -318,7 +369,18 @@ public class LlmProxyService {
         return desensitizationRequest;
     }
     
-    // 根据数据类型调用LLM API
+    
+    /**
+     * 为不同数据类型准备调用 LLM API 时的参数。
+     * <p>
+     * 会添加元数据（如数据类型、是否包含敏感信息），并移除原始参数中的二进制或结构化数据字段。
+     * </p>
+     *
+     * @param inputRequest        脱敏请求对象
+     * @param inputDesensitized   输入脱敏结果
+     * @param originalParams      原始扩展参数
+     * @return 处理后的参数字典
+     */
     private String callLlmApiWithDataType(DesensitizationRequest inputRequest, 
                                          DesensitizationResponse inputDesensitized,
                                          LlmConfig config, 

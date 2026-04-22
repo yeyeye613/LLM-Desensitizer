@@ -24,7 +24,7 @@ public class LlmProxyController {
         this.configService = configService;
     }
 
-
+    // TODO: 
     //新版LLM请求（多供应商）- 支持多种数据类型
     @PostMapping("/proxy")
     public ResponseEntity<LlmResponse> processLlmRequest(@RequestBody LlmRequest request) {
@@ -36,6 +36,7 @@ public class LlmProxyController {
         return ResponseEntity.ok(response);
     }
     
+
     //处理结构化数据的LLM请求，直接接收结构化数据，自动转换为合适的格式发送给LLM服务
     @PostMapping("/proxy/structured")
     public ResponseEntity<LlmResponse> processStructuredLlmRequest(@RequestBody Map<String, Object> structuredData, 
