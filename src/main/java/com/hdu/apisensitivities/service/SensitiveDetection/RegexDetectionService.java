@@ -5,6 +5,7 @@ import com.hdu.apisensitivities.service.DataParser.DataParserManager;
 import com.hdu.apisensitivities.entity.SensitiveEntity;
 import com.hdu.apisensitivities.entity.SensitiveType;
 import com.hdu.apisensitivities.service.ScenarioPerception.ScenarioAnalysisResult;
+import com.hdu.apisensitivities.utils.NlpEntityDetector;
 import com.hdu.apisensitivities.utils.PatternRegistry;
 import com.hdu.apisensitivities.service.SensitiveDetection.RegexPatternDetector;
 import lombok.extern.slf4j.Slf4j;
@@ -61,10 +62,13 @@ public class RegexDetectionService implements SensitiveDetectionService {
     private BinaryDataDetector binaryDataDetector;
     @Autowired
     private EntityMerger entityMerger;
+    
+    private final PythonNerClient pythonNerClient; // 新增
 
     @Autowired
-    public RegexDetectionService(DataParserManager dataParserManager) {
+    public RegexDetectionService(DataParserManager dataParserManager, PythonNerClient pythonNerClient) {
         this.dataParserManager = dataParserManager;
+        this.pythonNerClient = pythonNerClient;
     }
 
     // ======================== 文本检测核心方法 ========================
@@ -139,18 +143,28 @@ public class RegexDetectionService implements SensitiveDetectionService {
             }
         }
 
-        // ========== NLP实体检测 ==========
-        // 使用 HanLP 的封装进行NLP实体检测
-        List<SensitiveEntity> nlpEntities = nlpDetectionService.detect(text);
-        // 过滤NLP检测结果，根据includeTypes只检测某些敏感类型
+        // // ========== NLP实体检测 ==========
+        // // 使用 HanLP 的封装进行NLP实体检测
+        // List<SensitiveEntity> nlpEntities = nlpDetectionService.detect(text);
+        // // 过滤NLP检测结果，根据includeTypes只检测某些敏感类型
+        // if (includeTypes == null) {
+        //     entities.addAll(nlpEntities);
+        // } else {
+        //     for (SensitiveEntity entity : nlpEntities) {
+        //         if (includeTypes.contains(entity.getType().name())) {
+        //             entities.add(entity);
+        //         }
+        //     }
+        // }
+
+        // ========== 新 Python NER 检测 ==========
+        List<SensitiveEntity> pythonNerEntities = pythonNerClient.detect(text);
         if (includeTypes == null) {
-            entities.addAll(nlpEntities);
+            entities.addAll(pythonNerEntities);
         } else {
-            for (SensitiveEntity entity : nlpEntities) {
-                if (includeTypes.contains(entity.getType().name())) {
-                    entities.add(entity);
-                }
-            }
+            pythonNerEntities.stream()
+                    .filter(e -> includeTypes.contains(e.getType().name()))
+                    .forEach(entities::add);
         }
 
         // 检测自定义模式的敏感信息

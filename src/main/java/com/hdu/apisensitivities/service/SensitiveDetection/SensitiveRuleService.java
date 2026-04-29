@@ -16,7 +16,6 @@ import java.util.regex.PatternSyntaxException;
 @Slf4j
 @Service
 public class SensitiveRuleService {
-
     private final SensitiveRuleMapper sensitiveRuleMapper;
     private final SensitiveDetectionService sensitiveDetectionService;
 

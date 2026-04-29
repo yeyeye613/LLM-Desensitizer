@@ -6,16 +6,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/* 正则表达式规则集合 */
-// TODO:  规则过窄导致漏报（手机号提取不全）
-// 仅支持典型11位，缺少区分短码、座机、国际号、1800等变体。
-// 没考虑输入中有中文或分隔符如138 1234 5678。
-
-// 识别场景容易错误
-// "联系我：1393250881@@qq.com"
-// 脱敏后提示词
-// 📋 复制
-// "联系我：[PASSWORD].com"
 public class PatternRegistry {
 
         private static final Map<SensitiveType, Pattern> PATTERN_MAP = new HashMap<>();

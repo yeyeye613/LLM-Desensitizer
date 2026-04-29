@@ -12,13 +12,14 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class NlpEntityDetector {
 
     // 启用人名、地名、机构名识别
     private static final Segment segment = HanLP.newSegment()
-            .enableNameRecognize(true)    // 开启人名识别
-            .enablePlaceRecognize(true)   // 开启地名识别
+            .enableNameRecognize(true) // 开启人名识别
+            .enablePlaceRecognize(true) // 开启地名识别
             .enableOrganizationRecognize(true); // 开启机构名识别
 
     private static final Set<String> COMMON_SURNAME_PREFIX = new HashSet<>();
@@ -33,16 +34,20 @@ public class NlpEntityDetector {
         List<SensitiveEntity> entities = new ArrayList<>();
         List<Term> termList = segment.seg(text);
 
+        System.out.println("HanLP输出: " + termList.stream()
+                .map(t -> t.word + "/" + t.nature)
+                .collect(Collectors.joining(", ")));
+
         int currentPos = 0;
         for (Term term : termList) {
             String word = term.word;
             String nature = term.nature.toString();
-            
+
             if (word == null || word.trim().isEmpty()) {
                 currentPos += word != null ? word.length() : 0;
                 continue;
             }
-            
+
             SensitiveType type = getTypeByNature(nature, word);
             if (type == null) {
                 if (isPotentialPersonName(word)) {
