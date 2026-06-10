@@ -13,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
+import com.hdu.apisensitivities.entity.Message;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -62,7 +62,7 @@ public class LlmBasedScenarioPerceptionService implements ScenarioPerceptionServ
             }
 
             // 2. 构建提示词
-            String prompt = buildPrompt(request.getMainContent());
+            String prompt = buildPrompt(request);
 
             // 3. 调用LLM
             String response = client.sendRequest(prompt, config, new HashMap<>());
@@ -78,8 +78,10 @@ public class LlmBasedScenarioPerceptionService implements ScenarioPerceptionServ
     }
 
     // TODO: 这里只是构建提示词问AI，所发送的可能包含敏感信息的文本来分析场景来用不同场景下的正则匹配规则，有点本末导致
-    private String buildPrompt(String content) {
-        return """
+    private String buildPrompt(DesensitizationRequest request) {
+        String content = request.getMainContent();
+        String truncatedContent = content.length() > 2000 ? content.substring(0, 2000) : content;
+        String promptTemplate = """
                 你是一个专业的数据安全专家和情景分析助手。请分析以下用户输入的文本内容，识别其所属的业务情景，并给出相应的敏感信息处理建议。
                 
                 支持的情景类型包括：
@@ -105,8 +107,33 @@ public class LlmBasedScenarioPerceptionService implements ScenarioPerceptionServ
                 
                 待分析文本：
                 %s
-                """.formatted(content.length() > 2000 ? content.substring(0, 2000) : content); // 截断过长文本
-    }
+                """.formatted(
+                    buildHistoryContext(request),
+                    truncatedContent
+                );
+            return promptTemplate;
+        }
+        private String buildHistoryContext(DesensitizationRequest request) {
+            if (request.getMetadata() == null) {
+                return "";
+            }
+            Object historyObj = request.getMetadata().get("conversation_history");
+            if (historyObj instanceof List) {
+                List<Message> history = (List<Message>) historyObj;
+                StringBuilder context = new StringBuilder("\n### 历史对话上下文 ###\n");
+                for (Message msg : history) {
+                    Object data = msg.getData();
+                    if (data instanceof Map<?, ?>) {
+                        Map<String, Object> dataMap = (Map<String, Object>) data;
+                        String role = String.valueOf(dataMap.get("role"));
+                        String content = String.valueOf(dataMap.get("content"));
+                        context.append(role).append(": ").append(content).append("\n");
+                    }
+                }
+                return context.toString();
+            }
+            return ""; // 没有历史记录则返回空字符串
+        }
 
     private ScenarioAnalysisResult parseLlmResponse(String jsonResponse) {
         try {

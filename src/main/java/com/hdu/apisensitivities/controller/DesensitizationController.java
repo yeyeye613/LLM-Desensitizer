@@ -5,17 +5,21 @@ import com.hdu.apisensitivities.entity.DesensitizationRequest;
 import com.hdu.apisensitivities.entity.DesensitizationResponse;
 import com.hdu.apisensitivities.service.DesensitizationManager;
 import com.hdu.apisensitivities.service.SensitiveDetection.SensitiveDetectionService;
+
+import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 // 【入口1】接收HTTP请求
-
+@Slf4j
 @RestController
 @RequestMapping("/desensitize")
 public class DesensitizationController {
@@ -51,15 +55,16 @@ public class DesensitizationController {
             @RequestBody DesensitizationRequest request) {
         // 验证请求是否包含结构化数据
         if (!request.isStructuredData()) {
-            return ResponseEntity.badRequest().body(
-                    new DesensitizationResponse(null, null, null, false, "无效的结构化数据请求"));
-        }
-
-        // 确保数据类型设置正确
-        if (request.getDataType() == null) {
-            request.setDataType("JSON"); // 默认使用JSON
-        }
-
+        DesensitizationResponse response = DesensitizationResponse.builder()
+                .originalContent(null)
+                .desensitizedContent(null)
+                .detectedEntities(Collections.emptyList()) // 注意字段名是 detectedEntities
+                .success(false)
+                .message("无效的结构化数据请求")
+                .scenarioType("ERROR") // 新增字段，建议赋值
+                .build(); // 结尾加 build()
+                
+        return ResponseEntity.badRequest().body(response);}
         DesensitizationResponse response = desensitizationManager.process(request);
         return ResponseEntity.ok(response);
     }
@@ -76,8 +81,15 @@ public class DesensitizationController {
         try {
             // 检查文件是否为空
             if (file.isEmpty()) {
-                return ResponseEntity.badRequest().body(
-                        new DesensitizationResponse(null, null, null, false, "上传文件不能为空"));
+                
+                DesensitizationResponse errorResponse = new DesensitizationResponse(
+                        null,                           // originalContent
+                        null,                           // desensitizedContent
+                        Collections.emptyList(),        // detectedEntities (新字段名)
+                        false,                          // success
+                        "上传的文件为空",
+                        "UNKNOWN"                       // scenarioType (新增的第6个参数)
+                );
             }
 
             // 构建脱敏请求
@@ -90,8 +102,16 @@ public class DesensitizationController {
             DesensitizationResponse response = desensitizationManager.process(request);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
-                    new DesensitizationResponse(null, null, null, false, "处理二进制数据失败: " + e.getMessage()));
+            log.error("脱敏处理发生异常", e);
+                DesensitizationResponse errorResponse = new DesensitizationResponse(
+                    null,                           // originalContent
+                    null,                           // desensitizedContent
+                    Collections.emptyList(),        // detectedEntities (新字段名)
+                    false,                          // success
+                    "系统内部错误: " + e.getMessage(), // message
+                    "UNKNOWN"                       // scenarioType (新增的第6个参数)
+            );
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
 

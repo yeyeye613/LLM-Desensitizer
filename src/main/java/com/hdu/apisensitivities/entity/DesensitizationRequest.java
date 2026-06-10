@@ -29,8 +29,8 @@ public class DesensitizationRequest {
     private Set<String> includeTypes; // 需要检测的敏感类型集合
     private boolean autoScenarioDetection = false; // 是否开启自动情景感知，默认关闭
     private String manualScenarioType; // 用户手动指定的情景类型
-    private String sessionId; // 会话唯一标识，用于标识同一次对话（如前端生成的 UUID 或聊天会话 ID）
-    
+    private List<Message> history; //历史对话记录，用于多轮对话上下文
+    private String sessionId;
     // 判断是否为结构化数据
     public boolean isStructuredData() {
         return structuredData != null && !structuredData.isEmpty() ||

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hdu.apisensitivities.entity.DesensitizationRequest;
 import com.hdu.apisensitivities.entity.DesensitizationResponse;
+import com.hdu.apisensitivities.entity.Message;
 import com.hdu.apisensitivities.entity.SensitiveEntity;
 import com.hdu.apisensitivities.service.DesensitizationManager;
 import lombok.extern.slf4j.Slf4j;
@@ -72,13 +73,19 @@ public class DesensitizationBenchmarkTest {
             result.setExpectedCount(testCase.getExpected_entities().size());
 
             // 执行识别
+            List<Message> history = testCase.getHistory();
             DesensitizationRequest request = DesensitizationRequest.builder()
                     .content(testCase.getContent())
                     .dataType("TEXT")
                     .language(testCase.getLanguage())
                     // TODO: 这里情景感知关掉了
-                    .autoScenarioDetection(false)
-                    .strictMode(false) // 关闭严格模式
+                    .autoScenarioDetection(true)
+                    .strictMode(true) // 关闭严格模式
+                    .metadata(Map.of(
+                        "useLlmScenario", "true", // 这个 key 要和你代码中的判断一致
+                        "conversation_id", "test_bench_conversation" // 可选：模拟会话ID
+                    ))
+                    .history(history != null ? history : Collections.emptyList())//传入历史记录
                     .confidenceThreshold(0.0) // 设置低置信度阈值，避免过滤
                     .blacklist(null) // 不设置黑名单
                     .whitelist(null) // 不设置白名单
