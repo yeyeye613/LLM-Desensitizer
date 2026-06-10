@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hdu.apisensitivities.config.LlmConfig;
 import com.hdu.apisensitivities.entity.*;
 import com.hdu.apisensitivities.service.LlmClient.LlmClient;
+import com.hdu.apisensitivities.utils.CollectionTypeUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -22,22 +22,19 @@ import com.hdu.apisensitivities.service.Desensitization.SemanticPlaceholderStrat
  * <p>
  * 主要功能包括：
  * <ul>
- *     <li>接收 {@link LlmRequest} 或 {@link ApiRequest} 请求</li>
- *     <li>根据数据类型（文本/JSON/二进制等）进行敏感信息脱敏</li>
- *     <li>调用对应的 {@link LlmClient} 实现与真实 LLM API 交互</li>
- *     <li>对返回内容再次脱敏并封装为 {@link LlmResponse} 或 {@link ApiResponse}</li>
- *     <li>支持同步、异步、批量处理及提供商健康测试</li>
+ * <li>接收 {@link LlmRequest} 或 {@link ApiRequest} 请求</li>
+ * <li>根据数据类型（文本/JSON/二进制等）进行敏感信息脱敏</li>
+ * <li>调用对应的 {@link LlmClient} 实现与真实 LLM API 交互</li>
+ * <li>对返回内容再次脱敏并封装为 {@link LlmResponse} 或 {@link ApiResponse}</li>
+ * <li>支持同步、异步、批量处理及提供商健康测试</li>
  * </ul>
  * </p>
  */
 @Slf4j
 @Service
 public class LlmProxyService {
-    @Autowired
-    private NlpScanner nlpScanner;
-
-    @Autowired
-    private SemanticPlaceholderStrategy semanticPlaceholderStrategy; // 占位符策略
+    private final NlpScanner nlpScanner;
+    private final SemanticPlaceholderStrategy semanticPlaceholderStrategy;
     private final DesensitizationManager desensitizationManager;
     private final LlmConfigService configService;
     private final Map<LlmProvider, LlmClient> llmClients;
@@ -49,10 +46,13 @@ public class LlmProxyService {
      * @param configService          LLM 提供商配置服务，获取各提供商的 API 密钥、端点等配置
      * @param clients                所有已注册的 LLM 客户端实现，将按支持的提供商自动映射
      */
-    @Autowired
-    public LlmProxyService(DesensitizationManager desensitizationManager,
-                           LlmConfigService configService,
-                           List<LlmClient> clients) {
+    public LlmProxyService(NlpScanner nlpScanner,
+            SemanticPlaceholderStrategy semanticPlaceholderStrategy,
+            DesensitizationManager desensitizationManager,
+            LlmConfigService configService,
+            List<LlmClient> clients) {
+        this.nlpScanner = nlpScanner;
+        this.semanticPlaceholderStrategy = semanticPlaceholderStrategy;
         this.desensitizationManager = desensitizationManager;
         this.configService = configService;
         this.llmClients = clients.stream()
@@ -88,76 +88,93 @@ public class LlmProxyService {
         return isStillDangerous;
     }
 
-    //处理LLM请求（新版）
+    // 处理LLM请求（新版）
     public LlmResponse processLlmRequest(LlmRequest request) {
         Instant start = Instant.now();
 
         try {
             LlmProvider provider = request.getProvider();
-            LlmConfig config = configService.getConfigOrDefault(provider);
+            LlmConfig config = getProviderConfig(provider);
+            logRequestStart(request, provider);
+            validateProviderEnabled(provider);
 
-            log.info("开始处理LLM请求，提供商: {}, 会话ID: {}, 数据类型: {}",
-                    provider, request.getSessionId(), request.getDataType());
-
-            // 验证提供商是否启用
-            if (!configService.isProviderEnabled(provider)) {
-                throw new RuntimeException("LLM提供商未启用或配置不完整: " + provider);
-            }
-
-            // 根据数据类型执行不同的脱敏逻辑
             DesensitizationResult result = processWithDataSensitiveProtection(request, config);
-
             long processingTime = Duration.between(start, Instant.now()).toMillis();
-
-            // 构建响应
-            LlmResponse.LlmResponseBuilder responseBuilder = LlmResponse.builder()
-                    .originalResponse(result.getOriginalResponse())
-                    .desensitizedResponse(result.getDesensitizedResponse())
-                    .inputSensitiveEntities(result.getInputEntities())
-                    .outputSensitiveEntities(result.getOutputEntities())
-                    .provider(provider)
-                    .model(config.getModel())
-                    .processingTimeMs(processingTime)
-                    .success(true);
-
-            // 设置响应数据类型
-            responseBuilder.dataType(request.getDataType());
-
-            // 对于JSON和XML类型的响应，尝试解析为结构化数据
-            if ("JSON".equals(request.getDataType()) || "XML".equals(request.getDataType())) {
-                try {
-                    // 尝试将脱敏后的响应解析为结构化数据
-                    Map<String, Object> structuredData = parseJson(result.getDesensitizedResponse());
-                    if (structuredData != null && !structuredData.isEmpty()) {
-                        responseBuilder.structuredResponse(structuredData);
-                    }
-                } catch (Exception e) {
-                    log.warn("无法将响应解析为结构化数据: {}", e.getMessage());
-                    // 解析失败不影响返回，仍然返回文本形式的响应
-                }
-            }
-
-            return responseBuilder.build();
+            return buildSuccessResponse(request, provider, config, result, processingTime);
 
         } catch (Exception e) {
             log.error("处理LLM请求失败", e);
             long processingTime = Duration.between(start, Instant.now()).toMillis();
-
-            return LlmResponse.builder()
-                    .originalResponse(null)
-                    .desensitizedResponse(null)
-                    .inputSensitiveEntities(List.of())
-                    .outputSensitiveEntities(List.of())
-                    .provider(request.getProvider())
-                    .processingTimeMs(processingTime)
-                    .success(false)
-                    .errorMessage(e.getMessage())
-                    .build();
+            return buildFailedResponse(request, processingTime, e);
         }
     }
 
-    
-    //处理LLM请求（兼容旧版ApiRequest）
+    private LlmConfig getProviderConfig(LlmProvider provider) {
+        return configService.getConfigOrDefault(provider);
+    }
+
+    private void logRequestStart(LlmRequest request, LlmProvider provider) {
+        log.info("开始处理LLM请求，提供商: {}, 会话ID: {}, 数据类型: {}",
+                provider, request.getSessionId(), request.getDataType());
+    }
+
+    private void validateProviderEnabled(LlmProvider provider) {
+        if (!configService.isProviderEnabled(provider)) {
+            throw new RuntimeException("LLM提供商未启用或配置不完整: " + provider);
+        }
+    }
+
+    private LlmResponse buildSuccessResponse(LlmRequest request, LlmProvider provider, LlmConfig config,
+            DesensitizationResult result, long processingTime) {
+        LlmResponse.LlmResponseBuilder responseBuilder = LlmResponse.builder()
+                .originalResponse(result.getOriginalResponse())
+                .desensitizedResponse(result.getDesensitizedResponse())
+                .inputSensitiveEntities(result.getInputEntities())
+                .outputSensitiveEntities(result.getOutputEntities())
+                .provider(provider)
+                .model(config.getModel())
+                .processingTimeMs(processingTime)
+                .success(true)
+                .dataType(request.getDataType());
+
+        attachStructuredResponseIfNeeded(responseBuilder, request, result);
+        return responseBuilder.build();
+    }
+
+    private void attachStructuredResponseIfNeeded(LlmResponse.LlmResponseBuilder responseBuilder, LlmRequest request,
+            DesensitizationResult result) {
+        if (!isStructuredResponseType(request.getDataType())) {
+            return;
+        }
+
+        try {
+            Map<String, Object> structuredData = parseJson(result.getDesensitizedResponse());
+            if (structuredData != null && !structuredData.isEmpty()) {
+                responseBuilder.structuredResponse(structuredData);
+            }
+        } catch (Exception e) {
+            log.warn("无法将响应解析为结构化数据: {}", e.getMessage());
+        }
+    }
+
+    private boolean isStructuredResponseType(String dataType) {
+        return "JSON".equals(dataType) || "XML".equals(dataType);
+    }
+
+    private LlmResponse buildFailedResponse(LlmRequest request, long processingTime, Exception e) {
+        return LlmResponse.builder()
+                .originalResponse(null)
+                .desensitizedResponse(null)
+                .inputSensitiveEntities(List.of())
+                .outputSensitiveEntities(List.of())
+                .provider(request.getProvider())
+                .processingTimeMs(processingTime)
+                .success(false)
+                .errorMessage(e.getMessage())
+                .build();
+    }
+
+    // 处理LLM请求（兼容旧版ApiRequest）
     public ApiResponse processLlmRequest(ApiRequest request) {
         LlmRequest llmRequest = request.toLlmRequest();
         LlmResponse llmResponse = processLlmRequest(llmRequest);
@@ -180,21 +197,19 @@ public class LlmProxyService {
         return CompletableFuture.completedFuture(processLlmRequest(request));
     }
 
-    //批量处理LLM请求
+    // 批量处理LLM请求
     public Map<String, LlmResponse> batchProcessLlmRequests(List<LlmRequest> requests) {
         return requests.parallelStream()
                 .collect(Collectors.toMap(
                         LlmRequest::getSessionId,
-                        this::processLlmRequest
-                ));
+                        this::processLlmRequest));
     }
 
     public Map<String, ApiResponse> batchProcessLlmRequestsLegacy(List<ApiRequest> requests) {
         return requests.parallelStream()
                 .collect(Collectors.toMap(
                         ApiRequest::getSessionId,
-                        this::processLlmRequest
-                ));
+                        this::processLlmRequest));
     }
 
     /**
@@ -218,8 +233,7 @@ public class LlmProxyService {
                                 log.warn("提供商测试失败: {}", entry.getKey(), e);
                                 return false;
                             }
-                        }
-                ));
+                        }));
     }
 
     /**
@@ -230,53 +244,60 @@ public class LlmProxyService {
      * @return 封装了原始响应、脱敏响应及输入/输出敏感实体的结果对象
      */
     private DesensitizationResult processWithDataSensitiveProtection(LlmRequest request, LlmConfig config) {
-    // 1. 基础脱敏 (正则等基础逻辑)
         DesensitizationRequest inputRequest = buildDesensitizationRequestForLlm(request);
         DesensitizationResponse baseDesensitized = desensitizationManager.process(inputRequest);
+        List<String> aiEntities = extractSemanticEntities(baseDesensitized);
+        String maskedPrompt = buildMaskedPrompt(baseDesensitized, aiEntities);
+        auditMaskedPromptIfNeeded(aiEntities, maskedPrompt);
 
-        // 2. 调用NlpScanner (Agent的“眼睛”)
-        // 基础脱敏后的内容上再次扫描，确保不放过语义隐私
-        List<String> aiEntities = nlpScanner.extractEntities(baseDesensitized.getDesensitizedContent());
-
-        // 3.调用 SemanticPlaceholderStrategy 进行占位符打码
-        String maskedPrompt = semanticPlaceholderStrategy.desensitize(
-                baseDesensitized.getDesensitizedContent(),
-                aiEntities
-        );
-
-        // 4. 反思逻辑
-        if (!aiEntities.isEmpty()) {
-            log.info("Agent检测到语义敏感词，执行隐私保护策略...");
-            boolean dangerous = agentSelfReflection(maskedPrompt);
-            if (dangerous) {
-                // 如果反思发现还危险，这里可以加入补救逻辑，比如追加一层强制模糊处理
-                log.error("警告：Agent 自检发现脱敏不彻底，请检查本地模型识别能力。");
-            }
-        }
-
-        // 5. 调用修改后的 API 方法 (传入我们的 maskedPrompt)
         String llmRawResponse = callLlmApiWithDataType(
                 inputRequest,
                 baseDesensitized,
-                maskedPrompt, //  传入打码后的内容
+                maskedPrompt,
                 config,
                 request.getParameters(),
-                request.getProvider()
-        );
+                request.getProvider());
 
-        // 6. 还原映射 (将 [ENTITY_1] 变回真实姓名)
-        String finalResponse = semanticPlaceholderStrategy.restore(llmRawResponse);
-
-        // 7. 汇总实体 (基础检测到的 + AI检测到的)
-        List<SensitiveEntity> allEntities = new ArrayList<>(baseDesensitized.getDetectedEntities());
-        allEntities.addAll(convertToSensitiveEntities(aiEntities));
+        String finalResponse = restoreResponse(llmRawResponse);
+        List<SensitiveEntity> allEntities = mergeInputEntities(baseDesensitized, aiEntities);
 
         return new DesensitizationResult(
-                llmRawResponse, // 云端看到的原始回答（含占位符）
-                finalResponse,  // 用户看到的还原后的回答
-                allEntities,    // 页面显示的敏感词列表
-                List.of()
-        );
+                llmRawResponse,
+                finalResponse,
+                allEntities,
+                List.of());
+    }
+
+    private List<String> extractSemanticEntities(DesensitizationResponse baseDesensitized) {
+        return nlpScanner.extractEntities(baseDesensitized.getDesensitizedContent());
+    }
+
+    private String buildMaskedPrompt(DesensitizationResponse baseDesensitized, List<String> aiEntities) {
+        return semanticPlaceholderStrategy.desensitize(
+                baseDesensitized.getDesensitizedContent(),
+                aiEntities);
+    }
+
+    private void auditMaskedPromptIfNeeded(List<String> aiEntities, String maskedPrompt) {
+        if (aiEntities.isEmpty()) {
+            return;
+        }
+
+        log.info("Agent检测到语义敏感词，执行隐私保护策略...");
+        boolean dangerous = agentSelfReflection(maskedPrompt);
+        if (dangerous) {
+            log.error("警告：Agent 自检发现脱敏不彻底，请检查本地模型识别能力。");
+        }
+    }
+
+    private String restoreResponse(String llmRawResponse) {
+        return semanticPlaceholderStrategy.restore(llmRawResponse);
+    }
+
+    private List<SensitiveEntity> mergeInputEntities(DesensitizationResponse baseDesensitized, List<String> aiEntities) {
+        List<SensitiveEntity> allEntities = new ArrayList<>(baseDesensitized.getDetectedEntities());
+        allEntities.addAll(convertToSensitiveEntities(aiEntities));
+        return allEntities;
     }
 
     // 创建基本的脱敏请求对象
@@ -297,133 +318,105 @@ public class LlmProxyService {
 
         DesensitizationRequest desensitizationRequest = createBaseDesensitizationRequest(request, dataType);
 
-        // 根据数据类型设置不同的内容
         switch (dataType) {
             case "JSON", "XML":
-                // 处理结构化数据
-                if (request.getParameters() != null && request.getParameters().containsKey("structuredData")) {
-                    Object structuredDataObj = request.getParameters().get("structuredData");
-                    if (structuredDataObj instanceof Map) {
-                        Map<String, Object> structuredData = (Map<String, Object>) structuredDataObj;
-                        desensitizationRequest.setStructuredData(structuredData);
-                        log.debug("使用参数中的结构化数据，字段数量: {}", structuredData != null ? structuredData.size() : 0);
-                    } else {
-                        log.warn("structuredData参数不是Map类型，实际类型: {}", structuredDataObj != null ? structuredDataObj.getClass().getName() : "null");
-                    }
-                } else if (request.getPrompt() != null) {
-                    // 尝试将prompt解析为JSON
-                    try {
-                        Map<String, Object> parsedData = parseJson(request.getPrompt());
-                        if (parsedData != null && !parsedData.isEmpty()) {
-                            desensitizationRequest.setStructuredData(parsedData);
-                            log.debug("成功将prompt解析为结构化数据，字段数量: {}", parsedData.size());
-                        } else {
-                            // 解析成功但数据为空，使用原始prompt
-                            desensitizationRequest.setContent(request.getPrompt());
-                            log.debug("prompt解析为结构化数据但为空，使用原始文本");
-                        }
-                    } catch (Exception e) {
-                        // 解析失败，使用原始prompt
-                        desensitizationRequest.setContent(request.getPrompt());
-                        log.debug("无法将prompt解析为结构化数据: {}, 使用原始文本", e.getMessage());
-                    }
-                }
+                populateStructuredRequestContent(request, desensitizationRequest);
                 break;
             case "IMAGE", "AUDIO", "PDF", "DOC":
-                // 处理二进制数据
-                if (request.getParameters() != null && request.getParameters().containsKey("binaryData")) {
-                    Object binaryDataObj = request.getParameters().get("binaryData");
-                    if (binaryDataObj instanceof byte[]) {
-                        byte[] binaryData = (byte[]) binaryDataObj;
-                        desensitizationRequest.setBinaryData(binaryData);
-                        log.debug("使用二进制数据，大小: {} 字节", binaryData != null ? binaryData.length : 0);
-                    } else {
-                        log.warn("binaryData参数不是byte[]类型，实际类型: {}", binaryDataObj != null ? binaryDataObj.getClass().getName() : "null");
-                    }
-                }
-                // 同时也处理文本描述
-                if (request.getPrompt() != null) {
-                    desensitizationRequest.setContent(request.getPrompt());
-                    log.debug("使用文本描述: {}", request.getPrompt().length() > 100 ?
-                            request.getPrompt().substring(0, 100) + "..." : request.getPrompt());
-                }
+                populateBinaryRequestContent(request, desensitizationRequest);
                 break;
             default:
-                // 默认处理文本
-                desensitizationRequest.setContent(request.getPrompt());
-                log.debug("使用文本数据: {}", request.getPrompt() != null && request.getPrompt().length() > 100 ?
-                        request.getPrompt().substring(0, 100) + "..." : request.getPrompt());
+                populateTextRequestContent(request, desensitizationRequest);
                 break;
         }
 
+        applyIncludeTypesIfPresent(desensitizationRequest, request);
         return desensitizationRequest;
     }
 
-    // 为输出构建脱敏请求
-    private DesensitizationRequest buildDesensitizationResponseForOutput(String response, LlmRequest request) {
-        String inputDataType = request.getDataType() != null ? request.getDataType() : "TEXT";
+    private void applyIncludeTypesIfPresent(DesensitizationRequest req, LlmRequest request) {
+        if (request.getIncludeTypes() != null && !request.getIncludeTypes().isEmpty()) {
+            req.setIncludeTypes(request.getIncludeTypes());
+            req.setAutoScenarioDetection(false);
+            log.debug("场景感知检测范围: {}", request.getIncludeTypes());
+        }
+    }
 
-        DesensitizationRequest desensitizationRequest = createBaseDesensitizationRequest(request, inputDataType); // 默认保持与输入相同的数据类型
-
-        // 根据输入数据类型和响应内容决定如何处理输出
-        switch (inputDataType) {
-            case "JSON":
-                // 对于JSON输入，尝试将响应解析为JSON
-                if (response != null) {
-                    try {
-                        Map<String, Object> parsedData = parseJson(response);
-                        if (parsedData != null && !parsedData.isEmpty()) {
-                            desensitizationRequest.setStructuredData(parsedData);
-                            log.debug("输出响应成功解析为JSON，字段数量: {}", parsedData.size());
-                        } else {
-                            // 解析成功但数据为空，作为文本处理
-                            desensitizationRequest.setContent(response);
-                            desensitizationRequest.setDataType("TEXT"); // 更新为文本类型
-                            log.debug("输出响应解析为JSON但为空，作为文本处理");
-                        }
-                    } catch (Exception e) {
-                        // 解析失败，作为文本处理
-                        desensitizationRequest.setContent(response);
-                        desensitizationRequest.setDataType("TEXT"); // 更新为文本类型
-                        log.debug("无法将输出响应解析为JSON: {}, 作为文本处理", e.getMessage());
-                    }
-                }
-                break;
-            case "XML":
-                // 对于XML输入，尝试将响应解析为结构化数据
-                if (response != null) {
-                    try {
-                        // 这里可以添加XML解析逻辑
-                        // 暂时作为文本处理
-                        desensitizationRequest.setContent(response);
-                        desensitizationRequest.setDataType("TEXT"); // 更新为文本类型
-                    } catch (Exception e) {
-                        desensitizationRequest.setContent(response);
-                        desensitizationRequest.setDataType("TEXT"); // 更新为文本类型
-                    }
-                }
-                break;
-            case "IMAGE", "AUDIO", "PDF", "DOC":
-                // 对于二进制输入，响应通常是文本描述
-                desensitizationRequest.setContent(response);
-                desensitizationRequest.setDataType("TEXT"); // 更新为文本类型
-                break;
-            default:
-                // 默认作为文本处理
-                desensitizationRequest.setContent(response);
-                break;
+    private void populateStructuredRequestContent(LlmRequest request, DesensitizationRequest desensitizationRequest) {
+        if (hasParameter(request, "structuredData")) {
+            Object structuredDataObj = request.getParameters().get("structuredData");
+            Map<String, Object> structuredData = CollectionTypeUtils.asStringObjectMap(structuredDataObj);
+            if (structuredData != null) {
+                desensitizationRequest.setStructuredData(structuredData);
+                log.debug("使用参数中的结构化数据，字段数量: {}", structuredData.size());
+            } else {
+                log.warn("structuredData参数不是Map类型，实际类型: {}",
+                        structuredDataObj != null ? structuredDataObj.getClass().getName() : "null");
+            }
+            return;
         }
 
-        return desensitizationRequest;
+        if (request.getPrompt() == null) {
+            return;
+        }
+
+        try {
+            Map<String, Object> parsedData = parseJson(request.getPrompt());
+            if (parsedData != null && !parsedData.isEmpty()) {
+                desensitizationRequest.setStructuredData(parsedData);
+                log.debug("成功将prompt解析为结构化数据，字段数量: {}", parsedData.size());
+            } else {
+                desensitizationRequest.setContent(request.getPrompt());
+                log.debug("prompt解析为结构化数据但为空，使用原始文本");
+            }
+        } catch (Exception e) {
+            desensitizationRequest.setContent(request.getPrompt());
+            log.debug("无法将prompt解析为结构化数据: {}, 使用原始文本", e.getMessage());
+        }
+    }
+
+    private void populateBinaryRequestContent(LlmRequest request, DesensitizationRequest desensitizationRequest) {
+        if (hasParameter(request, "binaryData")) {
+            Object binaryDataObj = request.getParameters().get("binaryData");
+            if (binaryDataObj instanceof byte[]) {
+                byte[] binaryData = (byte[]) binaryDataObj;
+                desensitizationRequest.setBinaryData(binaryData);
+                log.debug("使用二进制数据，大小: {} 字节", binaryData != null ? binaryData.length : 0);
+            } else {
+                log.warn("binaryData参数不是byte[]类型，实际类型: {}",
+                        binaryDataObj != null ? binaryDataObj.getClass().getName() : "null");
+            }
+        }
+
+        if (request.getPrompt() != null) {
+            desensitizationRequest.setContent(request.getPrompt());
+            log.debug("使用文本描述: {}", buildPromptPreview(request.getPrompt()));
+        }
+    }
+
+    private void populateTextRequestContent(LlmRequest request, DesensitizationRequest desensitizationRequest) {
+        desensitizationRequest.setContent(request.getPrompt());
+        log.debug("使用文本数据: {}", buildPromptPreview(request.getPrompt()));
+    }
+
+    private boolean hasParameter(LlmRequest request, String key) {
+        return request.getParameters() != null && request.getParameters().containsKey(key);
+    }
+
+    private String buildPromptPreview(String prompt) {
+        if (prompt == null) {
+            return null;
+        }
+        return prompt.length() > 100 ? prompt.substring(0, 100) + "..." : prompt;
     }
 
     // 根据数据类型调用LLM API
     private String callLlmApiWithDataType(DesensitizationRequest inputRequest,
-                                         DesensitizationResponse inputDesensitized,
-                                         String maskedContent,
-                                         LlmConfig config,
-                                         Map<String, Object> parameters,
-                                         LlmProvider provider) {
+            DesensitizationResponse inputDesensitized,
+            String maskedContent,
+            LlmConfig config,
+            Map<String, Object> parameters,
+            LlmProvider provider) {
         log.info("调用真实LLM API，提供商: {}, 数据类型: {}, 敏感实体数: {}",
                 provider, inputRequest.getDataType(), inputDesensitized.getDetectedEntities().size());
 
@@ -464,8 +457,8 @@ public class LlmProxyService {
 
     // 为不同数据类型准备参数
     private Map<String, Object> prepareParamsForDataType(DesensitizationRequest inputRequest,
-                                                       DesensitizationResponse inputDesensitized,
-                                                       Map<String, Object> originalParams) {
+            DesensitizationResponse inputDesensitized,
+            Map<String, Object> originalParams) {
         Map<String, Object> processedParams = new HashMap<>();
         if (originalParams != null) {
             processedParams.putAll(originalParams);
@@ -529,7 +522,8 @@ public class LlmProxyService {
     }
 
     // 为二进制数据生成提示
-    private String generatePromptForBinaryData(DesensitizationRequest inputRequest, DesensitizationResponse inputDesensitized) {
+    private String generatePromptForBinaryData(DesensitizationRequest inputRequest,
+            DesensitizationResponse inputDesensitized) {
         StringBuilder prompt = new StringBuilder();
 
         // 根据不同的数据类型生成不同的提示
@@ -565,7 +559,8 @@ public class LlmProxyService {
     }
 
     // 为结构化数据生成提示
-    private String generatePromptForStructuredData(DesensitizationRequest inputRequest, DesensitizationResponse inputDesensitized) {
+    private String generatePromptForStructuredData(DesensitizationRequest inputRequest,
+            DesensitizationResponse inputDesensitized) {
         StringBuilder prompt = new StringBuilder();
 
         prompt.append("# 结构化数据分析任务\n\n");
@@ -602,13 +597,15 @@ public class LlmProxyService {
     private Map<String, Object> parseJson(String jsonString) {
         try {
             if (jsonString == null || jsonString.trim().isEmpty() ||
-                "null".equals(jsonString.trim()) || "undefined".equals(jsonString.trim())) {
+                    "null".equals(jsonString.trim()) || "undefined".equals(jsonString.trim())) {
                 return null;
             }
 
             // 使用Jackson解析JSON
             ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(jsonString, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+            return mapper.readValue(jsonString,
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {
+                    });
         } catch (Exception e) {
             log.debug("JSON解析失败: {}", e.getMessage());
             throw new RuntimeException("Failed to parse JSON", e);
@@ -623,7 +620,7 @@ public class LlmProxyService {
         private final List<SensitiveEntity> outputEntities;
 
         public DesensitizationResult(String originalResponse, String desensitizedResponse,
-                                    List<SensitiveEntity> inputEntities, List<SensitiveEntity> outputEntities) {
+                List<SensitiveEntity> inputEntities, List<SensitiveEntity> outputEntities) {
             this.originalResponse = originalResponse;
             this.desensitizedResponse = desensitizedResponse;
             this.inputEntities = inputEntities;
@@ -648,4 +645,3 @@ public class LlmProxyService {
     }
 
 }
-
