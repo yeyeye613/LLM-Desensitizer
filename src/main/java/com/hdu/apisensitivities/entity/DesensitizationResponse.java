@@ -58,6 +58,7 @@ public class DesensitizationResponse {
      * {@code false} 表示发生了异常（如数据解析失败、策略执行错误等）。
      * </p>
      */
+
     private boolean success;
 
     /**
@@ -67,4 +68,10 @@ public class DesensitizationResponse {
      * </p>
      */
     private String message;
+
+    private String scenarioType;
+
+    // --- 必须添加的方法 ---
+
+
 }

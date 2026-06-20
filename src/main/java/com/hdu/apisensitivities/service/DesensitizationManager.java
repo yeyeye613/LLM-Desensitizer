@@ -3,6 +3,7 @@ package com.hdu.apisensitivities.service;
 import com.hdu.apisensitivities.service.DataParser.DataParserManager;
 import com.hdu.apisensitivities.entity.DesensitizationRequest;
 import com.hdu.apisensitivities.entity.DesensitizationResponse;
+import com.hdu.apisensitivities.entity.Message;
 import com.hdu.apisensitivities.entity.SensitiveEntity;
 import com.hdu.apisensitivities.entity.SensitiveType;
 import com.hdu.apisensitivities.service.ScenarioPerception.ScenarioAnalysisResult;
@@ -11,6 +12,12 @@ import com.hdu.apisensitivities.service.Desensitization.DesensitizeRequestContex
 import com.hdu.apisensitivities.service.SensitiveDetection.TextSensitiveDetectionService;
 
 import lombok.extern.slf4j.Slf4j;
+<<<<<<< HEAD
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+=======
+>>>>>>> 944336c8694477238a4a96d955c216a53f418ad5
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -89,8 +96,135 @@ public class DesensitizationManager {
 
             ScenarioAnalysisResult scenarioResult = prepareDetectionScopeForCurrentMode(request);
 
+<<<<<<< HEAD
+            // if (useLlm) {
+            // log.info("使用LLM进行情景分析...");
+            // scenarioResult = llmScenarioPerceptionService.analyzeScenario(request);
+            // } else {
+            // // 默认使用关键词匹配，速度快且成本低
+            // scenarioResult = scenarioPerceptionService.analyzeScenario(request);
+            // }
+
+            // // 检查用户是否手动指定了情景类型
+            // if (request.getManualScenarioType() != null &&
+            // !request.getManualScenarioType().isEmpty()) {
+            // // 使用用户手动指定的情景类型
+            // try {
+            // ScenarioAnalysisResult.ScenarioType manualType =
+            // ScenarioAnalysisResult.ScenarioType
+            // .valueOf(request.getManualScenarioType().toUpperCase());
+            // scenarioResult.setScenarioType(manualType);
+            // scenarioResult.setConfidence(1.0); // 手动指定的情景置信度为1.0
+            // log.info("使用用户手动指定的情景类型: {}", manualType);
+            // } catch (IllegalArgumentException e) {
+            // log.warn("用户手动指定的情景类型无效: {}, 使用自动识别的情景类型",
+            // request.getManualScenarioType());
+            // }
+            // }
+
+            // log.info("情景分析完成，情景类型: {}, 置信度: {}",
+            // scenarioResult.getScenarioType(), String.format("%.2f",
+            // scenarioResult.getConfidence()));
+
+            // // 根据分析服务类型调整检测范围（因为不同服务的adjustDetectionScope逻辑可能不同）
+            // if (useLlm) {
+            // llmScenarioPerceptionService.adjustDetectionScope(request, scenarioResult);
+            // } else {
+            // scenarioPerceptionService.adjustDetectionScope(request, scenarioResult);
+            // }
+            // } else {
+            // // 自动情景感知关闭，使用默认情景
+            // scenarioResult = scenarioPerceptionService.getDefaultScenario();
+            // scenarioPerceptionService.adjustDetectionScope(request, scenarioResult);
+            // log.info("自动情景感知已关闭，使用默认情景类型: {}", scenarioResult.getScenarioType());
+            // }
+
+            // ========== 步骤2：情景分析（完全禁用）==========
+            ScenarioAnalysisResult scenarioResult = null;
+            // 不清空 includeTypes，让检测器检测所有类型
+            // 如果之前有值，保留；但建议设为 null 表示全部
+            request.setIncludeTypes(null);
+            request.setStrictMode(false);
+            log.info("情景感知已完全禁用，将检测所有敏感类型，严格模式关闭");
+            boolean useLlm = request.getMetadata() != null && 
+            "true".equalsIgnoreCase(String.valueOf(request.getMetadata().get("useLlmScenario")));
+
+            if (useLlm) {
+                log.info("检测到多轮对话模式，正在处理历史记录...");
+    
+                // 2. 获取历史记录
+                List<Message> history = request.getHistory();
+    
+                if (history != null && !history.isEmpty()) {
+                    // 3. 将历史记录放入 metadata，供后续的 LLM 服务使用
+                    // 注意：这里放入 metadata 是为了保持 request.getContent() 的纯净（仅当前轮次内容）
+                    request.getMetadata().put("conversation_history", history);
+                    log.info("已将 {} 轮历史对话注入到元数据中", history.size());
+                }
+    
+                //4. 调用 LLM 服务进行分析（即使禁用了情景感知，如果指定了 useLlm，我们仍然执行分析）
+                // 注意：这里根据你的业务需求调整，如果完全禁用情景感知，则注释掉下行
+                // scenarioResult = llmScenarioPerceptionService.analyzeScenario(request);
+            } else {
+                log.info("当前为单轮对话模式");
+            }
+// --- 多轮对话逻辑结束 ---
+
+            // ========== 步骤3：敏感信息检测 ==========
+            // 执行敏感信息检测（使用解析后的统一文本内容）
+=======
+>>>>>>> 944336c8694477238a4a96d955c216a53f418ad5
             List<SensitiveEntity> entities = detectSensitiveEntities(request, scenarioResult);
             DesensitizationResult result = applyDesensitization(request, entities);
+<<<<<<< HEAD
+        String finalScenarioType = "DEFAULT"; // 默认值
+
+        if (scenarioResult != null && scenarioResult.getScenarioType() != null) {
+            finalScenarioType = scenarioResult.getScenarioType().name(); // 假设它是枚举
+        } else if (request.getManualScenarioType() != null) {
+            // 如果有手动指定的，优先用手动指定的
+            finalScenarioType = request.getManualScenarioType();
+        }
+            // 构建响应
+                DesensitizationResponse response = new DesensitizationResponse(
+                        result.getOriginalContent(),      // 参数 1
+                        result.getDesensitizedContent(),  // 参数 2
+                        entities,                         // 参数 3
+                        true,                             // 参数 4
+                        "脱敏处理成功",                    // 参数 5
+                        finalScenarioType                 // 参数 6：使用刚才算出来的变量
+                );
+
+
+        // 将计算好的场景类型写入 Response
+        response.setScenarioType(finalScenarioType);
+
+        log.info("请求处理完成, SessionID: {}, 场景类型: {}", sessionId, finalScenarioType);
+
+        return response;
+
+        } catch (Exception e) {
+            log.error("脱敏处理失败", e);
+            String originalContent = request.getMainContent() != null ? request.getMainContent() : "";
+            DesensitizationResponse errorResponse = new DesensitizationResponse(
+                    originalContent,
+                    originalContent,
+                    Collections.emptyList(),
+                    false,
+                    "脱敏处理失败: " + e.getMessage(),
+                    "UNKNOWN"
+            );
+            return errorResponse; 
+
+
+            
+        }finally{
+            // 2. 【在最终块织入】：强行清理，防止线程复用导致的内存泄漏
+            DesensitizeRequestContext.clear();}
+        }
+    
+    
+=======
             return buildSuccessResponse(result, entities);
 
         } catch (Exception e) {
@@ -159,6 +293,7 @@ public class DesensitizationManager {
                 errorMessage);
     }
 
+>>>>>>> 944336c8694477238a4a96d955c216a53f418ad5
     // 敏感信息检测
     private List<SensitiveEntity> detectSensitiveEntities(DesensitizationRequest request,
             ScenarioAnalysisResult scenarioResult) {

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hdu.apisensitivities.entity.DesensitizationRequest;
 import com.hdu.apisensitivities.entity.DesensitizationResponse;
+import com.hdu.apisensitivities.entity.Message;
 import com.hdu.apisensitivities.entity.SensitiveEntity;
 import com.hdu.apisensitivities.entity.SensitiveType;
 import com.hdu.apisensitivities.service.DesensitizationManager;
